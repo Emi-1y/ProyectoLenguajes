@@ -57,4 +57,5 @@ yes
 yes
 (i+i)*i)
 no
-afet done select Q for exit of program.
+
+after done select Q for exit of program.
