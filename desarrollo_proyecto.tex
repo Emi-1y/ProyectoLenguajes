@@ -1,0 +1,59 @@
+
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\title{Desarrollo del Proyecto: Analizador LL(1) y SLR(1)}
+\author{Emily Cardona Castañeda\and Hellen Yanes Doria}
+\date{Mayo 2025}
+
+\begin{document}
+
+\maketitle
+
+\section{Desarrollo del Proyecto}
+
+\subsection{Cálculo de \textit{First} y \textit{Follow}}
+
+Uno de los primeros pasos fue encontrar una forma de saber con qué símbolos podía empezar una cadena derivada de una regla gramatical, y también qué símbolos podían venir después. Para eso usamos dos herramientas clave llamadas \textit{First} y \textit{Follow}. 
+
+Descubrimos que calcular estos conjuntos podía ser complicado, especialmente cuando había reglas que podían generar la cadena vacía. A veces, una regla depende de otra, que a su vez depende de otra más. Eso obligó a tener mucho cuidado con los casos en los que un símbolo puede desaparecer ($\varepsilon$) y cómo eso afecta a los demás.
+
+En particular, el conjunto \textit{Follow} (el que indica qué puede aparecer después de un símbolo) necesitó varias repeticiones para que toda la información se propagara bien. La parte más difícil fue manejar cómo los símbolos se influencian unos a otros, sin que eso cause ciclos o errores.
+
+\subsection{Parser LL(1)}
+
+Una vez tuvimos los conjuntos \textit{First} y \textit{Follow}, pudimos empezar a construir el \textit{parser LL(1)}, que es el que analiza la entrada de forma más directa y ordenada. Para eso hicimos una tabla que indica qué hacer dependiendo del símbolo que se está leyendo.
+
+Aunque el proceso en papel parece simple, al implementarlo nos dimos cuenta de que había que cuidar muchos detalles. Por ejemplo, si una regla podía generar la cadena vacía, también teníamos que mirar los símbolos que pueden venir después.
+
+En general, el parser LL(1) funcionó bien en los casos en que la gramática estaba bien estructurada. Pero si la gramática tenía ambigüedades o reglas que se solapaban, ya no se podía garantizar un comportamiento correcto.
+
+\subsection{Parser SLR(1)}
+
+El parser \textit{SLR(1)} fue más desafiante. Aquí ya no basta con leer de izquierda a derecha; hay que construir un autómata que represente todos los posibles estados del análisis. Implementar ese autómata, y luego usarlo para decidir qué hacer en cada paso, fue un proceso más complejo.
+
+Uno de los mayores retos fue detectar cuándo había conflictos, como por ejemplo si en cierto punto se podía elegir entre avanzar o reducir una regla. Para decidir correctamente, usamos los conjuntos \textit{Follow} como referencia.
+
+En general, el parser SLR(1) funcionó muy bien en los ejemplos que probamos. Sin embargo, no todas las gramáticas son adecuadas para este método, y en algunos casos puede fallar o comportarse de forma inesperada.
+
+\subsection{Dificultades y Soluciones}
+
+Uno de los problemas que más se repitió fue manejar las reglas que pueden generar la cadena vacía. Eso afectaba tanto a los conjuntos \textit{First} y \textit{Follow} como a la forma de construir los parsers. Para solucionarlo, añadimos verificaciones específicas en el código.
+
+También hubo que tener cuidado al llenar la tabla de acciones del parser SLR(1). Un pequeño error podía hacer que todo el análisis fallara, así que fue necesario revisar cada parte con detalle.
+
+\subsection{Conclusión}
+
+El proyecto permitió poner en práctica conceptos importantes de teoría de lenguajes y compiladores. Logramos construir dos analizadores distintos, que funcionan bien con gramáticas que cumplen ciertas condiciones.
+
+Aunque sabemos que hay casos más complejos que podrían generar problemas, el sistema actual cumple con los objetivos del proyecto y sirve como una buena base para seguir explorando este tipo de herramientas.
+
+\end{document}
