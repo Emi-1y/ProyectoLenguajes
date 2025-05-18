@@ -1,0 +1,361 @@
+from collections import defaultdict, deque
+
+def leer_gramatica():
+    gramatica = {}
+    try:
+        n = int(input())
+    except ValueError:
+        print("Error: Tu primera entrada debe ser un número")
+        return {}
+
+    for _ in range(n):
+        linea = input().strip()
+        if '->' not in linea:
+            print(f"Línea no válida: '{linea}'. Debe contener '->'")
+            continue
+
+        no_terminal, producciones = linea.split("->")
+        no_terminal = no_terminal.strip()
+        derivaciones = producciones.strip().split()
+
+        if no_terminal not in gramatica:
+            gramatica[no_terminal] = []
+
+        for prod in derivaciones:
+            gramatica[no_terminal].append([c for c in prod])
+
+    return gramatica
+
+def first(gramatica):
+    first = {}
+    def first_de(simbolo):
+        if simbolo in first:
+            return first[simbolo]
+
+        first[simbolo] = set()
+
+        if simbolo not in gramatica:
+            first[simbolo].add(simbolo)
+            return first[simbolo]
+
+        for produccion in gramatica[simbolo]:
+            if produccion == ['e']:
+                first[simbolo].add('e')
+                continue
+
+            for s in produccion:
+                first_s = first_de(s)
+                first[simbolo].update(first_s - {'e'})
+                if 'e' not in first_s:
+                    break
+            else:
+                first[simbolo].add('e')
+
+        return first[simbolo]
+
+    for nt in gramatica:
+        first_de(nt)
+
+    return first
+
+def follow(gramatica, first):
+    follow = {nt: set() for nt in gramatica}
+    simbolo_inicial = next(iter(gramatica))
+    follow[simbolo_inicial].add('$')
+
+    cambiado = True
+    while cambiado:
+        cambiado = False
+        for nt in gramatica:
+            for produccion in gramatica[nt]:
+                for i, simbolo in enumerate(produccion):
+                    if simbolo in gramatica:
+                        siguiente = produccion[i + 1:]
+                        first_siguiente = set()
+                        for s in siguiente:
+                            first_s = first[s] if s in first else {s}
+                            first_siguiente.update(first_s - {'e'})
+                            if 'e' not in first_s:
+                                break
+                        else:
+                            first_siguiente.add('e')
+
+                        antes = len(follow[simbolo])
+                        follow[simbolo].update(first_siguiente - {'e'})
+                        if 'e' in first_siguiente:
+                            follow[simbolo].update(follow[nt])
+                        if len(follow[simbolo]) > antes:
+                            cambiado = True
+    return follow
+
+def calcular_first_de_cadena(cadena, first, gramatica):
+    resultado = set()
+    for simbolo in cadena:
+        resultado.update(first.get(simbolo, {simbolo}) - {'e'})
+        if 'e' not in first.get(simbolo, {simbolo}):
+            break
+    else:
+        resultado.add('e')
+    return resultado
+
+def es_ll1(gramatica, first, follow):
+    for A in gramatica:
+        producciones = gramatica[A]
+        first_sets = [calcular_first_de_cadena(p, first, gramatica) for p in producciones]
+
+        for i in range(len(producciones)):
+            for j in range(i + 1, len(producciones)):
+                fi, fj = first_sets[i], first_sets[j]
+                if (fi & fj) - {'e'}:
+                    return False
+                if 'e' in fi and (fj & follow[A]):
+                    return False
+                if 'e' in fj and (fi & follow[A]):
+                    return False
+    return True
+
+def construir_automata_LR0_y_tablas(gramatica, follow):
+    start_symbol = next(iter(gramatica))
+    augmented = f"{start_symbol}'"
+    gramatica = gramatica.copy()
+    gramatica[augmented] = [[start_symbol]]
+
+    def closure(items):
+        closure_set = set(items)
+        added = True
+        while added:
+            added = False
+            new_items = set()
+            for A, prod, dot in closure_set:
+                if dot < len(prod):
+                    B = prod[dot]
+                    if B in gramatica:
+                        for bprod in gramatica[B]:
+                            item = (B, tuple(bprod), 0)
+                            if item not in closure_set:
+                                new_items.add(item)
+            if new_items:
+                closure_set |= new_items
+                added = True
+        return frozenset(closure_set)
+
+    def goto(items, simbolo):
+        moved = set()
+        for A, prod, dot in items:
+            if dot < len(prod) and prod[dot] == simbolo:
+                moved.add((A, prod, dot + 1))
+        return closure(moved) if moved else frozenset()
+
+    estados = []
+    transiciones = {}
+    inicial = closure([(augmented, tuple([start_symbol]), 0)])
+    estados.append(inicial)
+    pendientes = deque([inicial])
+    index_estado = {inicial: 0}
+
+    while pendientes:
+        actual = pendientes.popleft()
+        for simbolo in set(p[dot] for A, p, dot in actual if dot < len(p)):
+            siguiente = goto(actual, simbolo)
+            if siguiente not in index_estado:
+                index_estado[siguiente] = len(estados)
+                estados.append(siguiente)
+                pendientes.append(siguiente)
+            transiciones[(index_estado[actual], simbolo)] = index_estado[siguiente]
+
+    action = defaultdict(dict)
+    goto_tabla = defaultdict(dict)
+    es_slr = True
+
+    for idx, estado in enumerate(estados):
+        for A, prod, dot in estado:
+            if dot < len(prod):
+                simbolo = prod[dot]
+                if simbolo not in gramatica:
+                    destino = transiciones.get((idx, simbolo))
+                    if destino is not None:
+                        if simbolo in action[idx] and action[idx][simbolo] != ('shift', destino):
+                            es_slr = False
+                        action[idx][simbolo] = ('shift', destino)
+            else:
+                if A == augmented:
+                    action[idx]['$'] = ('accept',)
+                else:
+                    for a in follow[A]:
+                        if a in action[idx] and action[idx][a] != ('reduce', A, tuple(prod)):
+                            es_slr = False
+                        action[idx][a] = ('reduce', A, tuple(prod))
+
+        for simbolo in gramatica:
+            destino = transiciones.get((idx, simbolo))
+            if destino is not None:
+                goto_tabla[idx][simbolo] = destino
+
+    return es_slr, action, goto_tabla
+
+def imprimir_tabla_ll1(gramatica, first, follow):
+    print("\nTabla LL(1):")
+    tabla = {}
+    for A in gramatica:
+        tabla[A] = {}
+        for prod in gramatica[A]:
+            first_prod = calcular_first_de_cadena(prod, first, gramatica)
+            for a in first_prod - {'e'}:
+                tabla[A][a] = prod
+            if 'e' in first_prod:
+                for b in follow[A]:
+                    tabla[A][b] = prod
+
+    simbolos = sorted(set(a for filas in tabla.values() for a in filas))
+    print(f"{'NT':<10}|" + "|".join(f"{s:<10}" for s in simbolos))
+    print("-" * (11 + 11 * len(simbolos)))
+    for nt in tabla:
+        fila = [f"{nt:<10}|"]
+        for s in simbolos:
+            if s in tabla[nt]:
+                fila.append("".join(tabla[nt][s]).ljust(10))
+            else:
+                fila.append("".ljust(10))
+        print("|".join(fila))
+
+def imprimir_tabla_slr(action, goto_tabla):
+    print("\nTablas SLR(1):")
+    estados = sorted(action.keys())
+    terminales = sorted({t for a in action.values() for t in a})
+    no_terminales = sorted({nt for g in goto_tabla.values() for nt in g})
+
+    print(f"{'Estado':<8}|" + "|".join(f"{t:<10}" for t in terminales) + "|" + "|".join(f"{nt:<10}" for nt in no_terminales))
+    print("-" * (9 + 11 * (len(terminales) + len(no_terminales))))
+    for estado in estados:
+        fila = [f"{estado:<8}|"]
+        for t in terminales:
+            if t in action[estado]:
+                act = action[estado][t]
+                if act[0] == 'shift':
+                    fila.append(f"s{act[1]}".ljust(10))
+                elif act[0] == 'reduce':
+                    fila.append(f"r{act[1]}->{''.join(act[2])}".ljust(10))
+                elif act[0] == 'accept':
+                    fila.append("acc".ljust(10))
+            else:
+                fila.append("".ljust(10))
+        for nt in no_terminales:
+            if nt in goto_tabla[estado]:
+                fila.append(str(goto_tabla[estado][nt]).ljust(10))
+            else:
+                fila.append("".ljust(10))
+        print("|".join(fila))
+
+def analizar_cadena_ll1(cadena, gramatica, first, follow):
+    tabla = {}
+    for A in gramatica:
+        tabla[A] = {}
+        for prod in gramatica[A]:
+            first_prod = calcular_first_de_cadena(prod, first, gramatica)
+            for a in first_prod - {'e'}:
+                tabla[A][a] = prod
+            if 'e' in first_prod:
+                for b in follow[A]:
+                    tabla[A][b] = prod
+
+    cadena = list(cadena) + ['$']
+    pila = ['$', list(gramatica.keys())[0]]
+    idx = 0
+
+    while pila[-1] != '$':
+        X = pila[-1]
+        a = cadena[idx]
+        if X not in gramatica:
+            if X == a:
+                pila.pop()
+                idx += 1
+            else:
+                return False
+        else:
+            if a in tabla[X]:
+                pila.pop()
+                prod = tabla[X][a]
+                for s in reversed(prod):
+                    if s != 'e':
+                        pila.append(s)
+            else:
+                return False
+    return idx == len(cadena) - 1
+
+def analizar_cadena_slr(cadena, action, goto_tabla):
+    cadena = list(cadena) + ['$']
+    pila = [0]
+    idx = 0
+
+    while True:
+        estado = pila[-1]
+        simbolo = cadena[idx]
+
+        if simbolo not in action[estado]:
+            return False
+
+        accion = action[estado][simbolo]
+
+        if accion[0] == 'shift':
+            pila.append(simbolo)
+            pila.append(accion[1])
+            idx += 1
+        elif accion[0] == 'reduce':
+            _, A, beta = accion
+            for _ in range(2 * len(beta)):
+                pila.pop()
+            estado = pila[-1]
+            pila.append(A)
+            pila.append(goto_tabla[estado][A])
+        elif accion[0] == 'accept':
+            return True
+
+def menu_general(gramatica):
+    firsts = first(gramatica)
+    follows = follow(gramatica, firsts)
+
+    es_ll1_val = es_ll1(gramatica, firsts, follows)
+    es_slr_val, action, goto_tabla = construir_automata_LR0_y_tablas(gramatica, follows)
+
+    if es_ll1_val and es_slr_val:
+        print("Grammar is both LL(1) and SLR(1).")
+    elif es_ll1_val:
+        print("Grammar is LL(1) but not SLR(1).")
+    elif es_slr_val:
+        print("Grammar is SLR(1) but not LL(1).")
+    else:
+        print("Grammar is neither LL(1) nor SLR(1).")
+        return
+
+    if es_ll1_val:
+        imprimir_tabla_ll1(gramatica, firsts, follows)
+    if es_slr_val:
+        imprimir_tabla_slr(action, goto_tabla)
+
+    while True:
+        opcion = input("Select a parser (T: for LL(1), B: for SLR(1), Q: quit): ").strip().upper()
+        if opcion == 'Q':
+            break
+        elif opcion == 'T':
+            if not es_ll1_val:
+                print("Error: Grammar is not LL(1).")
+                continue
+            while True:
+                cadena = input().strip()
+                if cadena == "":
+                    break
+                print("yes" if analizar_cadena_ll1(cadena, gramatica, firsts, follows) else "no")
+        elif opcion == 'B':
+            if not es_slr_val:
+                print("Error: Grammar is not SLR(1).")
+                continue
+      
+            while True:
+                cadena = input().strip()
+                if cadena == "":
+                    break
+                print("yes" if analizar_cadena_slr(cadena, action, goto_tabla) else "no")
+
+if __name__ == "__main__":
+    gramatica = leer_gramatica()
+    menu_general(gramatica)
